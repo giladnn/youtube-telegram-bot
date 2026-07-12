@@ -119,6 +119,16 @@ def generate_markdown_files(archive_path: str = None, output_dir: str = None) ->
 
         if tickers:
             lines += ["## 🎫 טיקרים", "", " · ".join(f"`{t}`" for t in tickers), ""]
+        ticker_stats = entry.get("ticker_stats", {})
+        if ticker_stats:
+            lines += ["## 📊 נתוני שוק", ""]
+            for ticker, stats in ticker_stats.items():
+                arrow = "🟢 מעל" if stats.get("above_ma") else "🔴 מתחת"
+                lines.append(
+                    f"- **{ticker}**: מחיר {stats['price']:,} · "
+                    f"ממוצע 150 ימים: {stats['ma150']:,} ({arrow})"
+                )
+            lines.append("")
         if entry.get("claim"):
             lines += ["## 💬 טענה מרכזית", "", entry["claim"], ""]
         if entry.get("recommendation"):
@@ -157,6 +167,13 @@ def _render_video_card(video: Dict[str, Any]) -> str:
     )
 
     rows = []
+    for ticker, stats in video.get("ticker_stats", {}).items():
+        cls = "rec" if stats.get("above_ma") else "risk"
+        arrow = "מעל" if stats.get("above_ma") else "מתחת"
+        rows.append(
+            f'<p class="{cls}">📊 {html.escape(ticker)}: {stats["price"]:,} · '
+            f'ממוצע 150: {stats["ma150"]:,} ({arrow})</p>'
+        )
     if recommendation:
         rows.append(f'<p class="rec">📈 {recommendation}</p>')
     if claim:

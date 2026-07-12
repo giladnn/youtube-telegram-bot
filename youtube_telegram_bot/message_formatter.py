@@ -66,6 +66,14 @@ def _format_video_entry(video: Dict[str, Any]) -> str:
     if meta_line:
         parts.append(" · ".join(meta_line))
 
+    # Price vs 150-day moving average per ticker
+    ticker_stats = video.get("ticker_stats", {})
+    for ticker, stats in ticker_stats.items():
+        arrow = "🟢 מעל" if stats.get("above_ma") else "🔴 מתחת"
+        parts.append(
+            f"📊 {ticker}: {stats['price']:,} · ממוצע 150: {stats['ma150']:,} ({arrow})"
+        )
+
     if claim:
         parts.append(f"💬 {_truncate(claim, CLAIM_TRUNCATE_LENGTH)}")
 

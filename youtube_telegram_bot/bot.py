@@ -30,6 +30,7 @@ from youtube_telegram_bot.html_report import (
     generate_html,
     generate_markdown_files,
 )
+from youtube_telegram_bot.market_data import enrich_tickers
 
 # Setup logging
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
@@ -105,6 +106,8 @@ def run_bot(dry_run: bool = False) -> bool:
                     "recommendation": summary.get("recommendation", ""),
                     "risk_flag": summary.get("risk_flag", ""),
                     "hebrew_summary": summary.get("hebrew_summary", ""),
+                    # Live price + 150-day moving average per ticker
+                    "ticker_stats": enrich_tickers(summary.get("tickers", [])),
                 }
                 processed_videos.append(video_data)
                 logger.info(f"    ✓ Processed: {title}")
