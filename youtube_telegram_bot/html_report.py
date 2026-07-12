@@ -133,6 +133,11 @@ def generate_markdown_files(archive_path: str = None, output_dir: str = None) ->
             lines += ["## 💬 טענה מרכזית", "", entry["claim"], ""]
         if entry.get("recommendation"):
             lines += ["## 📈 המלצה", "", entry["recommendation"], ""]
+        tips = entry.get("tips", [])
+        if tips:
+            lines += ["## 💡 טיפים מהסרטון", ""]
+            lines += [f"- {tip}" for tip in tips]
+            lines.append("")
         risk = entry.get("risk_flag", "")
         if risk and risk.lower() not in ("ללא", "none", ""):
             lines += ["## ⚠️ סיכונים", "", risk, ""]
@@ -178,6 +183,10 @@ def _render_video_card(video: Dict[str, Any]) -> str:
         rows.append(f'<p class="rec">📈 {recommendation}</p>')
     if claim:
         rows.append(f'<p class="claim">💬 {claim}</p>')
+    tips = video.get("tips", [])
+    if tips:
+        tip_items = "".join(f"<li>{html.escape(t)}</li>" for t in tips)
+        rows.append(f'<ul class="tips">{tip_items}</ul>')
     if risk_flag and risk_flag.lower() not in ("ללא", "none", ""):
         rows.append(f'<p class="risk">⚠️ {html.escape(risk_flag)}</p>')
     if summary:
@@ -268,6 +277,9 @@ def generate_html(archive_path: str = None, output_path: str = None) -> str:
     font-family: ui-monospace, monospace;
   }}
   .rec {{ color: var(--rec); margin: 4px 0; }}
+  .tips {{ margin: 8px 0; padding-inline-start: 20px; list-style: none; }}
+  .tips li {{ margin: 4px 0; }}
+  .tips li::before {{ content: "💡 "; }}
   .risk {{ color: var(--risk); margin: 4px 0; }}
   .claim {{ margin: 4px 0; }}
   .summary {{ color: var(--muted); font-size: 0.9rem; margin: 8px 0 0; }}

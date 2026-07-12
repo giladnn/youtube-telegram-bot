@@ -105,6 +105,7 @@ def run_bot(dry_run: bool = False) -> bool:
                     "claim": summary.get("claim", ""),
                     "recommendation": summary.get("recommendation", ""),
                     "risk_flag": summary.get("risk_flag", ""),
+                    "tips": summary.get("tips", []),
                     "hebrew_summary": summary.get("hebrew_summary", ""),
                     # Live price + 150-day moving average per ticker
                     "ticker_stats": enrich_tickers(summary.get("tickers", [])),

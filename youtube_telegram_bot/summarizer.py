@@ -36,13 +36,14 @@ HEBREW_FINANCE_PROMPT = """You are an expert financial analyst. Analyze this inv
 
 Return your analysis with this exact structure:
 
-**Tickers:** [comma-separated Israeli stock symbols, e.g., טבה, ניס, תיקל]
+**Tickers:** [comma-separated stock symbols in English, e.g., META, TEVA, NICE.TA]
 **Claim:** [The main financial claim or recommendation in 1-2 sentences, in Hebrew]
 **Recommendation:** [BUY / HOLD / SELL / WATCH, in Hebrew]
 **Risk Flag:** [Any risks or warnings mentioned in Hebrew, or "ללא" if none]
+**Tips:** [Every concrete, actionable trading tip the speaker gives, one per line starting with "-". Capture SPECIFICS in Hebrew: exact price levels for entry/exit/stop, support and resistance levels, open gaps and their price targets, volume conditions for confirming a breakout, moving-average levels (e.g. ממוצע 150), chart patterns to watch, timing conditions ("wait for earnings", "wait for the Fed decision"), and general trading rules the speaker teaches. If a tip has a number in it, ALWAYS include the number. Write "ללא" if no actionable tips are given.]
 **Summary:** [3–5 sentence summary of the analysis in Hebrew]
 
-Keep the analysis concise and actionable. Use English ticker symbols (TEVA, NICE, ICL, etc.) when discussing stock names.
+Keep the analysis concise and actionable. Use English ticker symbols (TEVA, NICE, ICL, etc.) when discussing stock names. Never invent price levels that are not in the transcript.
 
 Transcript:
 {transcript}
@@ -141,6 +142,7 @@ def _parse_gemini_response(response_text: str) -> Dict[str, Any]:
         "claim": "",
         "recommendation": "",
         "risk_flag": "",
+        "tips": [],
         "hebrew_summary": "",
     }
 
@@ -165,6 +167,15 @@ def _parse_gemini_response(response_text: str) -> Dict[str, Any]:
     result["claim"] = _extract_field_value(response_text, "Claim")
     result["recommendation"] = _extract_field_value(response_text, "Recommendation")
     result["risk_flag"] = _extract_field_value(response_text, "Risk Flag")
+
+    # Tips: multi-line field, one tip per "-" line
+    tips_text = _extract_field_value(response_text, "Tips")
+    if tips_text and tips_text.strip().lower() not in ("ללא", "none"):
+        result["tips"] = [
+            line.lstrip("-• ").strip()
+            for line in tips_text.split("\n")
+            if line.strip().lstrip("-• ").strip()
+        ]
 
     # Summary field might be called "Summary" or have multi-line content
     summary = _extract_field_value(response_text, "Summary")
@@ -352,6 +363,7 @@ def summarize_transcript(transcript: str, video_title: str) -> Dict[str, Any]:
             "claim": parsed["claim"],
             "recommendation": parsed["recommendation"],
             "risk_flag": parsed["risk_flag"],
+            "tips": parsed["tips"],
             "hebrew_summary": parsed["hebrew_summary"],
             "error": None,
         }

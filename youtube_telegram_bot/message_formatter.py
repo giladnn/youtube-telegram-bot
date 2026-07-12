@@ -11,6 +11,7 @@ TELEGRAM_MESSAGE_LIMIT = 4096
 POST_TRUNCATE_LENGTH = 200
 MAX_CHANNEL_POSTS = 5
 CLAIM_TRUNCATE_LENGTH = 150
+MAX_TIPS = 4
 
 # Human-readable Hebrew labels for source channels
 CHANNEL_LABELS = {
@@ -76,6 +77,11 @@ def _format_video_entry(video: Dict[str, Any]) -> str:
 
     if claim:
         parts.append(f"💬 {_truncate(claim, CLAIM_TRUNCATE_LENGTH)}")
+
+    # Actionable tips (levels, gaps, entry/exit conditions)
+    tips = video.get("tips", [])
+    for tip in tips[:MAX_TIPS]:
+        parts.append(f"💡 {_truncate(tip, CLAIM_TRUNCATE_LENGTH)}")
 
     if risk_flag and risk_flag.lower() not in ("ללא", "none", ""):
         parts.append(f"⚠️ {_truncate(risk_flag, CLAIM_TRUNCATE_LENGTH)}")
