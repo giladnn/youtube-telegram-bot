@@ -3,10 +3,15 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# Load .env from the project root (parent of this package)
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 # YouTube channel IDs
 CHANNELS = {
-    "Micha.Stocks": "UCi0TGNL1I3ByW2t3hDJlsmQ",
-    "guynatan9": "UCRbPjQKjDkOWKM1TM4-lsqQ",
+    "Micha.Stocks": "UCSxjNbPriyBh9RNl_QNSAtw",
+    "guynatan9": "UCJww92D4haH3uolAWiLIFRw",
 }
 
 # RSS feed base URL

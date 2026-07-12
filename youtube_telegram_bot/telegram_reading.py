@@ -5,7 +5,7 @@ import os
 from typing import List, Optional
 
 try:
-    from telethon import TelegramClient
+    from telethon.sync import TelegramClient
     from telethon.errors import SessionPasswordNeededError
 except ImportError:
     TelegramClient = None
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 TELEGRAM_API_ID = os.getenv("TELEGRAM_API_ID", "")
 TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH", "")
 TELEGRAM_PHONE = os.getenv("TELEGRAM_PHONE", "")
-TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID", "hon_land")  # Channel username
+TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID", "-1002007708028")  # Hon Land chat ID
 TELETHON_SESSION_FILE = os.getenv("TELETHON_SESSION_FILE", "telethon_session.session")
 
 
@@ -62,22 +62,26 @@ def read_channel_posts(
             TELEGRAM_API_HASH,
         )
 
-        # Connect (will reuse session if it exists)
+        # Connect (reuses session if it exists; first run sends a login code
+        # to the user's Telegram app and prompts for it in the terminal)
+        client.start(phone=TELEGRAM_PHONE)
         with client:
             posts = []
 
             try:
-                # Get channel entity
-                entity = client.get_entity(channel_id)
+                # Numeric IDs (e.g. -1002007708028) must be passed as int
+                entity_ref = int(channel_id) if str(channel_id).lstrip("-").isdigit() else channel_id
+                entity = client.get_entity(entity_ref)
                 logger.debug(f"Connected to channel: {entity.title if hasattr(entity, 'title') else channel_id}")
 
                 # Fetch latest messages
                 messages = client.get_messages(entity, limit=limit)
 
-                # Extract text from messages
+                # Extract text from messages, prefixed with post date
                 for message in messages:
                     if message.text:
-                        posts.append(message.text)
+                        stamp = message.date.strftime("%d.%m") if message.date else ""
+                        posts.append(f"[{stamp}] {message.text}" if stamp else message.text)
 
                 logger.info(f"Read {len(posts)} posts from {channel_id}")
                 return posts

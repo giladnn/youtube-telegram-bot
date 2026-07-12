@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Telegram Bot API configuration
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1002007708028")  # Default group ID
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1003772028678")  # "Morning digest" channel
 TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 TELEGRAM_API_TIMEOUT = 10
 

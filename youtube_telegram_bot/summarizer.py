@@ -49,7 +49,10 @@ Transcript:
 """
 
 # Gemini model configuration
-GEMINI_MODEL = "gemini-1.5-flash"
+# Models are tried in order — each has a separate free-tier daily quota,
+# so if the primary is exhausted (429) the next one takes over
+GEMINI_MODEL = "gemini-flash-latest"
+GEMINI_FALLBACK_MODELS = ["gemini-flash-lite-latest", "gemini-2.0-flash"]
 GEMINI_API_TIMEOUT = 30
 
 
@@ -150,6 +153,13 @@ def _parse_gemini_response(response_text: str) -> Dict[str, Any]:
             t.strip() for t in ticker_list
             if t.strip() and not t.strip().startswith("**")
         ]
+        # Keep only strings that look like real ticker symbols
+        # (uppercase letters, optional dots/digits, e.g. META or NICE.TA) —
+        # models sometimes leak explanatory Hebrew text into this field
+        tickers = [
+            t for t in tickers
+            if re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", t)
+        ]
         result["tickers"] = tickers
 
     result["claim"] = _extract_field_value(response_text, "Claim")
@@ -232,7 +242,7 @@ def summarize_transcript(transcript: str, video_title: str) -> Dict[str, Any]:
     - Risk flags and warnings (Hebrew)
     - Concise Hebrew summary (3-5 sentences)
 
-    Uses Gemini 1.5 Flash model on the free tier (1M tokens/day).
+    Uses Gemini 2.5 Flash model on the free tier (1M tokens/day).
     Estimated cost: $0 (free tier).
 
     Args:
@@ -296,12 +306,25 @@ def summarize_transcript(transcript: str, video_title: str) -> Dict[str, Any]:
             f"Transcript: {len(transcript)} chars"
         )
 
-        # Call Gemini API with timeout protection
-        logger.debug(f"Calling Gemini API with model: {GEMINI_MODEL}")
-        try:
-            response = model.generate_content(prompt)
-        except Exception as api_error:
-            error_msg = f"Gemini API call failed: {api_error}"
+        # Call Gemini API, falling back to alternate models on quota errors
+        response = None
+        last_error = None
+        for model_name in [GEMINI_MODEL] + GEMINI_FALLBACK_MODELS:
+            try:
+                logger.debug(f"Calling Gemini API with model: {model_name}")
+                response = genai.GenerativeModel(model_name).generate_content(prompt)
+                if model_name != GEMINI_MODEL:
+                    logger.info(f"Used fallback model: {model_name}")
+                break
+            except Exception as api_error:
+                last_error = api_error
+                if "429" in str(api_error) or "RESOURCE_EXHAUSTED" in str(api_error):
+                    logger.warning(f"Model {model_name} quota exhausted, trying next")
+                    continue
+                break  # Non-quota error: don't burn other models' quota
+
+        if response is None:
+            error_msg = f"Gemini API call failed: {last_error}"
             logger.error(error_msg)
             default_response["error"] = error_msg
             return default_response

@@ -1,4 +1,4 @@
-"""YouTube transcript extraction using yt-dlp."""
+"""YouTube transcript extraction using youtube-transcript-api (primary) + yt-dlp fallback."""
 
 import logging
 import os
@@ -7,15 +7,21 @@ from pathlib import Path
 from typing import Optional
 
 try:
+    from youtube_transcript_api import YouTubeTranscriptApi
+except ImportError:
+    YouTubeTranscriptApi = None  # Fallback to yt-dlp
+
+try:
     import yt_dlp
 except ImportError:
-    yt_dlp = None  # Will be caught in extract_transcript
+    yt_dlp = None  # Fallback disabled if neither library available
 
 
 logger = logging.getLogger(__name__)
 
 # Language preference order for captions
-PREFERRED_LANGUAGES = ["he", "en"]
+# NOTE: YouTube uses the legacy ISO code "iw" for Hebrew auto-captions
+PREFERRED_LANGUAGES = ["iw", "he", "en"]
 
 # Supported caption file extensions
 CAPTION_EXTENSIONS = ("*.vtt", "*.srt")
@@ -101,21 +107,46 @@ def _find_caption_file(temp_dir: str) -> Optional[Path]:
     return caption_files[0]
 
 
-def extract_transcript(video_id: str) -> str:
+def _extract_via_transcript_api(video_id: str) -> str:
     """
-    Extract transcript from YouTube video using yt-dlp.
+    Extract transcript using youtube-transcript-api (lightweight, no auth).
 
-    Attempts to extract captions in order of preference (Hebrew, then English).
-    Returns empty string if no captions are available or if extraction fails.
-
-    Uses temporary directory for caption files, which is automatically cleaned up.
-    Does not download video files, only caption tracks.
+    Attempts Hebrew first, then English. Faster than yt-dlp but only works
+    for videos with available transcripts (manual or pre-cached auto-captions).
 
     Args:
         video_id: YouTube video ID
 
     Returns:
-        Transcript text as string, or empty string if unavailable or on error
+        Transcript text or empty string if unavailable/failed
+    """
+    if YouTubeTranscriptApi is None:
+        return ""
+
+    try:
+        # v1.x API: instantiate and fetch with language preference list
+        api = YouTubeTranscriptApi()
+        transcript = api.fetch(video_id, languages=PREFERRED_LANGUAGES)
+        # Snippets are objects with .text in v1.x, dicts in 0.x
+        text = " ".join(
+            s.text if hasattr(s, "text") else s["text"] for s in transcript
+        )
+        logger.info(f"Extracted transcript via API for {video_id} ({len(text)} chars)")
+        return text
+    except Exception as e:
+        logger.debug(f"youtube-transcript-api unavailable for {video_id}: {e}")
+        return ""
+
+
+def _extract_via_ytdlp(video_id: str) -> str:
+    """
+    Extract transcript using yt-dlp (fallback, slower but more robust).
+
+    Args:
+        video_id: YouTube video ID
+
+    Returns:
+        Transcript text or empty string if unavailable/failed
     """
     if yt_dlp is None:
         logger.warning("yt-dlp not installed")
@@ -151,5 +182,31 @@ def extract_transcript(video_id: str) -> str:
             return transcript
 
         except Exception as e:
-            logger.warning(f"Failed to extract transcript for video {video_id}: {e}")
+            logger.debug(f"yt-dlp fallback failed for {video_id}: {e}")
             return ""
+
+
+def extract_transcript(video_id: str) -> str:
+    """
+    Extract transcript from YouTube video using youtube-transcript-api (primary) + yt-dlp fallback.
+
+    Attempts to extract captions in order of preference (Hebrew, then English).
+    Returns empty string if no captions are available or if extraction fails.
+
+    Uses lightweight youtube-transcript-api first (fast, no auth, no download).
+    Falls back to yt-dlp if transcript API doesn't work (handles edge cases).
+
+    Args:
+        video_id: YouTube video ID
+
+    Returns:
+        Transcript text as string, or empty string if unavailable or on error
+    """
+    # Try lightweight API first
+    transcript = _extract_via_transcript_api(video_id)
+    if transcript:
+        return transcript
+
+    # Fallback to yt-dlp if API doesn't work
+    transcript = _extract_via_ytdlp(video_id)
+    return transcript

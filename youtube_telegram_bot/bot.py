@@ -25,6 +25,11 @@ from youtube_telegram_bot.summarizer import summarize_transcript
 from youtube_telegram_bot.telegram_posting import post_digest
 from youtube_telegram_bot.telegram_reading import read_channel_posts
 from youtube_telegram_bot.message_formatter import format_digest
+from youtube_telegram_bot.html_report import (
+    archive_summaries,
+    generate_html,
+    generate_markdown_files,
+)
 
 # Setup logging
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
@@ -79,7 +84,7 @@ def run_bot(dry_run: bool = False) -> bool:
                 transcript = extract_transcript(video_id)
                 if not transcript:
                     logger.warning(f"    ⚠ No transcript available for: {title}")
-                    errors.append((title, "No transcript"))
+                    errors.append((video_id, title, "No transcript"))
                     continue
 
                 # Summarize transcript
@@ -87,13 +92,14 @@ def run_bot(dry_run: bool = False) -> bool:
                 if summary.get("error"):
                     error_msg = summary["error"]
                     logger.warning(f"    ⚠ Summarization error for {title}: {error_msg}")
-                    errors.append((title, error_msg))
+                    errors.append((video_id, title, error_msg))
                     continue
 
                 # Combine video info with summary
                 video_data = {
                     "id": video_id,
                     "title": title,
+                    "channel": video.get("channel", ""),
                     "tickers": summary.get("tickers", []),
                     "claim": summary.get("claim", ""),
                     "recommendation": summary.get("recommendation", ""),
@@ -105,13 +111,36 @@ def run_bot(dry_run: bool = False) -> bool:
 
             except Exception as e:
                 logger.error(f"    ✗ Unexpected error processing {title}: {e}")
-                errors.append((title, str(e)))
+                errors.append((video_id, title, str(e)))
                 continue
 
         logger.info(f"  Result: {len(processed_videos)} processed, {len(errors)} skipped")
         if errors:
-            for title, error in errors[:3]:  # Log first 3 errors
+            for _vid, title, error in errors[:3]:  # Log first 3 errors
                 logger.debug(f"    Skipped '{title}': {error}")
+
+            # Un-mark failed videos so the next run retries them
+            # (polling marks videos seen before processing succeeds)
+            try:
+                from youtube_telegram_bot.state import load_state, save_state
+                from youtube_telegram_bot.config import STATE_FILE
+
+                state = load_state(STATE_FILE)
+                for vid, _title, _error in errors:
+                    state.pop(vid, None)
+                save_state(state, STATE_FILE)
+                logger.info(f"  Unmarked {len(errors)} failed video(s) for retry next run")
+            except Exception as e:
+                logger.warning(f"  ⚠ Could not unmark failed videos: {e}")
+
+        # Archive summaries, refresh the HTML report + markdown knowledge base
+        if processed_videos and not dry_run:
+            try:
+                archive_summaries(processed_videos)
+                generate_html()
+                generate_markdown_files()
+            except Exception as e:
+                logger.warning(f"  ⚠ Failed to update HTML/markdown reports: {e}")
 
         # Step 3: Read Telegram channel posts
         logger.info("Step 3/5: Reading Telegram channel posts")
