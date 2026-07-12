@@ -1,0 +1,86 @@
+:root {
+  --bg: #f4f6f9;
+  --card: #ffffff;
+  --text: #1a1a2e;
+  --muted: #6b7280;
+  --accent: #4f46e5;
+  --green: #10b981;
+  --red: #ef4444;
+  --orange: #f59e0b;
+  --border: #e5e7eb;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.container { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
+
+header { text-align: center; margin-bottom: 28px; }
+header h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+header p { color: var(--muted); font-size: 13px; }
+
+/* Stat cards */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }
+.stat-card { background: var(--card); border-radius: 12px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.stat-card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+.stat-card .value { font-size: 26px; font-weight: 700; }
+.stat-card .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* Sections */
+.section { background: var(--card); border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.06); margin-bottom: 18px; }
+.section h2 { font-size: 15px; font-weight: 600; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+.section h2 .icon { font-size: 18px; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 8px 10px; border-bottom: 2px solid var(--border); }
+td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+.amount { font-weight: 600; text-align: right; white-space: nowrap; }
+
+/* Badges */
+.cat-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+.cat-tobacco  { background: #fef3c7; color: #b45309; }
+.cat-clothing, .cat-shopping { background: #ede9fe; color: #7c3aed; }
+.cat-dining   { background: #d1fae5; color: #065f46; }
+.cat-wellness { background: #dbeafe; color: #1e40af; }
+.cat-services { background: #fce7f3; color: #be185d; }
+
+.status-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+.status-shipped   { background: #d1fae5; color: #065f46; }
+.status-completed { background: #e0e7ff; color: #3730a3; }
+.status-invoice   { background: #fef3c7; color: #b45309; }
+
+/* Chart bar */
+.chart-bar { height: 28px; border-radius: 6px; display: flex; overflow: hidden; margin-bottom: 6px; }
+.chart-bar div { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: #fff; white-space: nowrap; padding: 0 6px; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+.legend-dot { width: 10px; height: 10px; border-radius: 3px; }
+
+/* Alerts */
+.flag { border-radius: 10px; padding: 12px 16px; margin-bottom: 10px; display: flex; align-items: flex-start; gap: 10px; }
+.flag:last-child { margin-bottom: 0; }
+.flag .flag-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+.flag .flag-text { font-size: 13px; }
+.flag .flag-text strong { display: block; margin-bottom: 2px; }
+.flag.warn { background: #fffbeb; border: 1px solid #fde68a; }
+.flag.info { background: #eff6ff; border: 1px solid #bfdbfe; }
+
+/* Utilities */
+.muted { color: var(--muted); }
+.small { font-size: 12px; margin-top: 8px; }
+code { background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+.footer { text-align: center; padding: 16px; color: var(--muted); font-size: 11px; }
+
+@media (max-width: 600px) {
+  .stats { grid-template-columns: 1fr 1fr; }
+  th, td { padding: 8px 6px; font-size: 13px; }
+}
