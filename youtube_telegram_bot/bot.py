@@ -119,23 +119,27 @@ def run_bot(dry_run: bool = False) -> bool:
                 continue
 
         logger.info(f"  Result: {len(processed_videos)} processed, {len(errors)} skipped")
-        if errors:
-            for _vid, title, error in errors[:3]:  # Log first 3 errors
-                logger.debug(f"    Skipped '{title}': {error}")
+        for _vid, title, error in errors[:3]:  # Log first 3 errors
+            logger.debug(f"    Skipped '{title}': {error}")
 
-            # Un-mark failed videos so the next run retries them
-            # (polling marks videos seen before processing succeeds)
+        # Un-mark videos that must be re-picked-up by the next real run:
+        # failed ones (retry), and in dry-run mode ALL new videos —
+        # a dry run must never consume a video's "newness"
+        unmark_ids = [vid for vid, _t, _e in errors]
+        if dry_run:
+            unmark_ids = [v.get("id") for v in new_videos]
+        if unmark_ids:
             try:
                 from youtube_telegram_bot.state import load_state, save_state
                 from youtube_telegram_bot.config import STATE_FILE
 
                 state = load_state(STATE_FILE)
-                for vid, _title, _error in errors:
+                for vid in unmark_ids:
                     state.pop(vid, None)
                 save_state(state, STATE_FILE)
-                logger.info(f"  Unmarked {len(errors)} failed video(s) for retry next run")
+                logger.info(f"  Unmarked {len(unmark_ids)} video(s) for next real run")
             except Exception as e:
-                logger.warning(f"  ⚠ Could not unmark failed videos: {e}")
+                logger.warning(f"  ⚠ Could not unmark videos: {e}")
 
         # Archive summaries, refresh the HTML report + markdown knowledge base
         if processed_videos and not dry_run:
