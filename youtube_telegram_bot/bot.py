@@ -181,6 +181,12 @@ def run_bot(dry_run: bool = False) -> bool:
         logger.info("Step 5/5: Posting digest to Telegram")
         success = post_digest(digest_message, dry_run=dry_run)
 
+        # Also send the digest to extra private recipients (e.g. אבא),
+        # from the user's own account since the bot can't DM them
+        if success and not dry_run:
+            from youtube_telegram_bot.telegram_reading import send_message_as_user
+            send_message_as_user(digest_message)
+
         # Final summary
         logger.info("=" * 60)
         if success:

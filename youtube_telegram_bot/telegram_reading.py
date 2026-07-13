@@ -23,6 +23,49 @@ TELETHON_SESSION_FILE = os.getenv("TELETHON_SESSION_FILE", "telethon_session.ses
 # Newest message id seen by the last read_channel_posts call (cursor for dedup)
 LAST_READ_MAX_ID = 0
 
+# Extra digest recipient (private chat), messaged from the user's own account
+TELEGRAM_FORWARD_TO = os.getenv("TELEGRAM_FORWARD_TO", "")
+
+
+def send_message_as_user(text: str, target_id: Optional[int] = None) -> bool:
+    """
+    Send a message from the user's own Telegram account (Telethon session).
+
+    Used to forward the digest to additional private recipients the bot
+    cannot reach (a bot can only DM users who /start-ed it first).
+
+    Args:
+        text: Message text to send
+        target_id: Recipient user/chat id (defaults to TELEGRAM_FORWARD_TO)
+
+    Returns:
+        True if sent, False otherwise
+    """
+    if TelegramClient is None:
+        return False
+
+    target = int(target_id or TELEGRAM_FORWARD_TO or 0)
+    if not target:
+        return False
+
+    try:
+        client = TelegramClient(
+            TELETHON_SESSION_FILE, int(TELEGRAM_API_ID), TELEGRAM_API_HASH
+        )
+        client.connect()
+        # Never trigger an interactive login from an automated run
+        if not client.is_user_authorized():
+            logger.error("Telethon session not authorized — cannot forward digest")
+            client.disconnect()
+            return False
+        with client:
+            client.send_message(target, text)
+        logger.info(f"Forwarded digest to user {target} (as personal account)")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to forward digest to {target}: {e}")
+        return False
+
 
 def read_channel_posts(
     limit: int = 5,
