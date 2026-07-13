@@ -329,10 +329,14 @@ def summarize_transcript(transcript: str, video_title: str) -> Dict[str, Any]:
                 break
             except Exception as api_error:
                 last_error = api_error
-                if "429" in str(api_error) or "RESOURCE_EXHAUSTED" in str(api_error):
-                    logger.warning(f"Model {model_name} quota exhausted, trying next")
+                err = str(api_error)
+                # Quota exhausted or transient server error: try the next model
+                if any(s in err for s in ("429", "RESOURCE_EXHAUSTED",
+                                          "500", "503", "504",
+                                          "Deadline Exceeded", "unavailable")):
+                    logger.warning(f"Model {model_name} failed ({err[:60]}), trying next")
                     continue
-                break  # Non-quota error: don't burn other models' quota
+                break  # Permanent error (bad key, blocked content): stop
 
         if response is None:
             error_msg = f"Gemini API call failed: {last_error}"
