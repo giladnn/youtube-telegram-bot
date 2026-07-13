@@ -56,6 +56,47 @@ GEMINI_MODEL = "gemini-flash-latest"
 GEMINI_FALLBACK_MODELS = ["gemini-flash-lite-latest", "gemini-2.0-flash"]
 GEMINI_API_TIMEOUT = 30
 
+TRANSLATE_PROMPT = """Translate the following Telegram digest message from Hebrew to Russian.
+
+Rules:
+- Keep ALL emojis, line structure, and formatting exactly as they are
+- Keep stock ticker symbols (META, SPY, NICE.TA), numbers, prices, and dates unchanged
+- Keep Telegram markdown markers (*bold*, `code`) in place around the translated text
+- Translate naturally for a Russian-speaking investor; do not add or remove content
+- Return ONLY the translated message, nothing else
+
+Message:
+{text}
+"""
+
+
+def translate_to_russian(text: str) -> str:
+    """
+    Translate a digest message to Russian via Gemini (with model fallback).
+
+    Returns the translation, or the original text if translation fails —
+    a Hebrew digest is better than no digest.
+    """
+    if genai is None or not text.strip():
+        return text
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        genai.configure(api_key=api_key)
+
+    prompt = TRANSLATE_PROMPT.format(text=text)
+    for model_name in [GEMINI_MODEL] + GEMINI_FALLBACK_MODELS:
+        try:
+            response = genai.GenerativeModel(model_name).generate_content(prompt)
+            if response and response.text and response.text.strip():
+                return response.text.strip()
+        except Exception as e:
+            logger.warning(f"Translation via {model_name} failed: {str(e)[:60]}")
+            continue
+
+    logger.warning("Translation failed on all models — sending original text")
+    return text
+
 
 def _initialize_gemini_client() -> Optional[Any]:
     """

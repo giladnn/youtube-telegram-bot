@@ -182,10 +182,12 @@ def run_bot(dry_run: bool = False) -> bool:
         success = post_digest(digest_message, dry_run=dry_run)
 
         # Also send the digest to extra private recipients (e.g. אבא),
-        # from the user's own account since the bot can't DM them
+        # from the user's own account since the bot can't DM them.
+        # אבא reads Russian, so his copy is translated first.
         if success and not dry_run:
             from youtube_telegram_bot.telegram_reading import send_message_as_user
-            send_message_as_user(digest_message)
+            from youtube_telegram_bot.summarizer import translate_to_russian
+            send_message_as_user(translate_to_russian(digest_message))
 
         # Final summary
         logger.info("=" * 60)
