@@ -124,10 +124,17 @@ def generate_markdown_files(archive_path: str = None, output_dir: str = None) ->
             lines += ["## 📊 נתוני שוק", ""]
             for ticker, stats in ticker_stats.items():
                 arrow = "🟢 מעל" if stats.get("above_ma") else "🔴 מתחת"
-                lines.append(
+                line = (
                     f"- **{ticker}**: מחיר {stats['price']:,} · "
                     f"ממוצע 150 ימים: {stats['ma150']:,} ({arrow})"
                 )
+                analyst = stats.get("analyst")
+                if analyst:
+                    line += (
+                        f" · 🎯 {analyst['rating']}, יעד {analyst['target_mean']:,} "
+                        f"({analyst['analysts']} אנליסטים)"
+                    )
+                lines.append(line)
             lines.append("")
         if entry.get("claim"):
             lines += ["## 💬 טענה מרכזית", "", entry["claim"], ""]
@@ -175,10 +182,17 @@ def _render_video_card(video: Dict[str, Any]) -> str:
     for ticker, stats in video.get("ticker_stats", {}).items():
         cls = "rec" if stats.get("above_ma") else "risk"
         arrow = "מעל" if stats.get("above_ma") else "מתחת"
-        rows.append(
-            f'<p class="{cls}">📊 {html.escape(ticker)}: {stats["price"]:,} · '
-            f'ממוצע 150: {stats["ma150"]:,} ({arrow})</p>'
+        line = (
+            f'📊 {html.escape(ticker)}: {stats["price"]:,} · '
+            f'ממוצע 150: {stats["ma150"]:,} ({arrow})'
         )
+        analyst = stats.get("analyst")
+        if analyst:
+            line += (
+                f' · 🎯 {html.escape(analyst["rating"])} · '
+                f'יעד {analyst["target_mean"]:,} ({analyst["analysts"]} אנליסטים)'
+            )
+        rows.append(f'<p class="{cls}">{line}</p>')
     if recommendation:
         rows.append(f'<p class="rec">📈 {recommendation}</p>')
     if claim:
