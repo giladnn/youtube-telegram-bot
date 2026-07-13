@@ -181,17 +181,20 @@ def run_bot(dry_run: bool = False) -> bool:
         logger.info(f"  Digest size: {len(digest_message)} chars")
         logger.debug(f"  Message preview:\n{digest_message[:200]}...")
 
-        # Step 5: Post to Telegram
+        # Step 5: Post to Telegram — channel + extra recipient (e.g. אבא).
+        # The Russian translation is prepared BEFORE posting so both sends
+        # go out back-to-back instead of a minute apart.
         logger.info("Step 5/5: Posting digest to Telegram")
+        russian_copy = ""
+        if not dry_run:
+            from youtube_telegram_bot.summarizer import translate_to_russian
+            russian_copy = translate_to_russian(digest_message)
+
         success = post_digest(digest_message, dry_run=dry_run)
 
-        # Also send the digest to extra private recipients (e.g. אבא),
-        # from the user's own account since the bot can't DM them.
-        # אבא reads Russian, so his copy is translated first.
-        if success and not dry_run:
+        if success and not dry_run and russian_copy:
             from youtube_telegram_bot.telegram_reading import send_message_as_user
-            from youtube_telegram_bot.summarizer import translate_to_russian
-            send_message_as_user(translate_to_russian(digest_message))
+            send_message_as_user(russian_copy)
 
         # Final summary
         logger.info("=" * 60)

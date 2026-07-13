@@ -118,15 +118,15 @@ def main() -> bool:
     chunks = split_message(review)
     logger.info(f"Daily review: {len(review)} chars in {len(chunks)} message(s)")
 
+    # Translate the WHOLE review upfront (Russian runs ~25% longer than
+    # Hebrew, so split after translating) — this way the channel post and
+    # the Russian copy go out at the same time instead of a minute apart
+    russian_chunks = split_message(translate_to_russian(review))
+
     ok = True
     for chunk in chunks:
         ok = post_digest(chunk) and ok
-
-    # Russian copy for the extra recipient. Translate the WHOLE review first,
-    # then split — Russian runs ~25% longer than Hebrew, so splitting before
-    # translation can push chunks past Telegram's 4096-char limit
-    russian = translate_to_russian(review)
-    for chunk in split_message(russian):
+    for chunk in russian_chunks:
         send_message_as_user(chunk)
 
     logger.info("✓ Daily review sent" if ok else "✗ Daily review had errors")
