@@ -20,11 +20,15 @@ TELEGRAM_PHONE = os.getenv("TELEGRAM_PHONE", "")
 TELEGRAM_CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID", "-1002007708028")  # Hon Land chat ID
 TELETHON_SESSION_FILE = os.getenv("TELETHON_SESSION_FILE", "telethon_session.session")
 
+# Newest message id seen by the last read_channel_posts call (cursor for dedup)
+LAST_READ_MAX_ID = 0
+
 
 def read_channel_posts(
     limit: int = 5,
     channel_id: Optional[str] = None,
     dry_run: bool = False,
+    min_id: int = 0,
 ) -> List[str]:
     """
     Read latest posts from a Telegram channel using Telethon.
@@ -75,7 +79,12 @@ def read_channel_posts(
                 logger.debug(f"Connected to channel: {entity.title if hasattr(entity, 'title') else channel_id}")
 
                 # Fetch latest messages
-                messages = client.get_messages(entity, limit=limit)
+                # min_id > 0 fetches only messages newer than that id
+                messages = client.get_messages(entity, limit=limit, min_id=min_id)
+
+                # Track newest message id so callers can persist a cursor
+                global LAST_READ_MAX_ID
+                LAST_READ_MAX_ID = max((m.id for m in messages), default=min_id)
 
                 # Extract text from messages, prefixed with post date
                 for message in messages:

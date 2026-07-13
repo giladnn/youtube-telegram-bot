@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 # Telegram limits for context
 TELEGRAM_MESSAGE_LIMIT = 4096
 POST_TRUNCATE_LENGTH = 200
-MAX_CHANNEL_POSTS = 5
+MAX_CHANNEL_POSTS = 10
 CLAIM_TRUNCATE_LENGTH = 150
 MAX_TIPS = 4
 

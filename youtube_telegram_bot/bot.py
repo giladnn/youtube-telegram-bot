@@ -146,10 +146,30 @@ def run_bot(dry_run: bool = False) -> bool:
             except Exception as e:
                 logger.warning(f"  ⚠ Failed to update HTML/markdown reports: {e}")
 
-        # Step 3: Read Telegram channel posts
+        # Step 3: Read Telegram channel posts (only ones newer than last digest)
         logger.info("Step 3/5: Reading Telegram channel posts")
-        channel_posts = read_channel_posts(limit=5, dry_run=dry_run)
-        logger.info(f"  Read {len(channel_posts)} post(s)")
+        from youtube_telegram_bot import telegram_reading
+        from youtube_telegram_bot.state import load_state, save_state
+        from youtube_telegram_bot.config import STATE_FILE
+
+        state = load_state(STATE_FILE)
+        last_post_id = state.get("_honland_last_id", 0)
+        channel_posts = read_channel_posts(limit=10, dry_run=dry_run, min_id=last_post_id)
+        logger.info(f"  Read {len(channel_posts)} new post(s) since id {last_post_id}")
+
+        # Persist cursor so already-sent posts are never repeated
+        new_max_id = telegram_reading.LAST_READ_MAX_ID
+        if not dry_run and new_max_id > last_post_id:
+            state["_honland_last_id"] = new_max_id
+            save_state(state, STATE_FILE)
+
+        # Nothing new anywhere → skip posting (lets the bot run hourly without spam)
+        if not processed_videos and not channel_posts:
+            logger.info("Nothing new since last digest — skipping post")
+            logger.info("=" * 60)
+            logger.info("✓ Bot orchestration COMPLETED (no new content)")
+            logger.info("=" * 60)
+            return True
 
         # Step 4: Format digest
         logger.info("Step 4/5: Formatting digest message")
