@@ -1,4 +1,4 @@
-"""Hon Land-only feed bot — relays new Hon Land posts to a dedicated group.
+"""my_advice_bot — relays new Hon Land posts in full to a dedicated group.
 
 This is a second, independent bot: different bot token, different destination,
 and crucially its own read cursor. It shares nothing mutable with the main
@@ -9,7 +9,7 @@ Unlike the main digest (which truncates posts to keep the combined message
 skimmable), this relays each post in full — that's the whole point of a
 dedicated feed.
 
-Run: python3 -m youtube_telegram_bot.honland_bot
+Run: python3 -m youtube_telegram_bot.my_advice_bot
 """
 
 import logging
@@ -30,12 +30,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Second bot's own credentials and destination
-HONLAND_BOT_TOKEN = os.getenv("HONLAND_BOT_TOKEN", "")
-HONLAND_CHAT_ID = os.getenv("HONLAND_CHAT_ID", "")
+MY_ADVICE_BOT_TOKEN = os.getenv("MY_ADVICE_BOT_TOKEN", "")
+MY_ADVICE_CHAT_ID = os.getenv("MY_ADVICE_CHAT_ID", "")
 
 # Separate cursor key — must NOT be the main bot's "_honland_last_id",
 # otherwise whichever bot runs first would consume the other's posts
-CURSOR_KEY = "_honland_feed_last_id"
+CURSOR_KEY = "_my_advice_last_id"
 
 # Telegram caps messages at 4096; leave headroom for markdown
 CHUNK_LIMIT = 3800
@@ -80,12 +80,12 @@ def run(dry_run: bool = False) -> bool:
     Returns True on success (including "nothing new"), False on failure.
     """
     logger.info("=" * 60)
-    logger.info("Hon Land feed bot starting")
+    logger.info("my_advice_bot starting")
     logger.info("=" * 60)
 
-    if not dry_run and not (HONLAND_BOT_TOKEN and HONLAND_CHAT_ID):
+    if not dry_run and not (MY_ADVICE_BOT_TOKEN and MY_ADVICE_CHAT_ID):
         logger.error(
-            "HONLAND_BOT_TOKEN / HONLAND_CHAT_ID not set — "
+            "MY_ADVICE_BOT_TOKEN / MY_ADVICE_CHAT_ID not set — "
             "create the bot via BotFather and add both to .env"
         )
         return False
@@ -109,8 +109,8 @@ def run(dry_run: bool = False) -> bool:
         ok = post_digest(
             chunk,
             dry_run=dry_run,
-            token=HONLAND_BOT_TOKEN,
-            chat_id=HONLAND_CHAT_ID,
+            token=MY_ADVICE_BOT_TOKEN,
+            chat_id=MY_ADVICE_CHAT_ID,
         ) and ok
 
     # Advance the cursor only after a successful send, so a failed run
@@ -121,7 +121,7 @@ def run(dry_run: bool = False) -> bool:
         save_state(state, STATE_FILE)
         logger.info(f"Cursor advanced to {new_max_id}")
 
-    logger.info("✓ Hon Land feed sent" if ok else "✗ Hon Land feed had errors")
+    logger.info("✓ my_advice_bot feed sent" if ok else "✗ my_advice_bot feed had errors")
     return ok
 
 
