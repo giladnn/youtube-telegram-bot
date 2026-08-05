@@ -14,7 +14,6 @@ Run: python3 -m youtube_telegram_bot.my_advice_bot
 
 import logging
 import os
-from datetime import datetime
 from typing import List
 
 from youtube_telegram_bot import telegram_reading
@@ -64,13 +63,14 @@ def split_message(text: str, limit: int = CHUNK_LIMIT) -> List[str]:
 
 
 def format_feed(posts: List[str]) -> str:
-    """Format new Hon Land posts as a standalone feed message, full text."""
-    today = datetime.now().strftime("%d.%m")
-    header = f"📊 *הון לנד | סקירות והחזקות* · {today}"
+    """
+    Format new Hon Land posts as a feed message, full text.
 
+    No header — the group is already named for the source, so a title on
+    every message is just noise. Posts carry their own [dd.mm] stamp.
+    """
     # Newest last reads more naturally in a chat feed
-    body = "\n\n➖➖➖\n\n".join(reversed(posts))
-    return f"{header}\n\n{body}"
+    return "\n\n➖➖➖\n\n".join(reversed(posts))
 
 
 def run(dry_run: bool = False) -> bool:
