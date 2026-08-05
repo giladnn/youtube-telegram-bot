@@ -114,7 +114,9 @@ def split_message(text: str, limit: int = CHUNK_LIMIT) -> List[str]:
 
 
 def main() -> bool:
-    review = build_daily_review()
+    from youtube_telegram_bot.rephrase import rephrase_digest
+
+    review = rephrase_digest(build_daily_review())
     chunks = split_message(review)
     logger.info(f"Daily review: {len(review)} chars in {len(chunks)} message(s)")
 

@@ -175,9 +175,13 @@ def run_bot(dry_run: bool = False) -> bool:
             logger.info("=" * 60)
             return True
 
-        # Step 4: Format digest
+        # Step 4: Format digest, then vary its wording so consecutive
+        # editions don't read like the same form letter
         logger.info("Step 4/5: Formatting digest message")
         digest_message = format_digest(processed_videos, channel_posts)
+        if not dry_run:
+            from youtube_telegram_bot.rephrase import rephrase_digest
+            digest_message = rephrase_digest(digest_message)
         logger.info(f"  Digest size: {len(digest_message)} chars")
         logger.debug(f"  Message preview:\n{digest_message[:200]}...")
 
