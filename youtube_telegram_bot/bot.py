@@ -25,9 +25,19 @@ from youtube_telegram_bot.summarizer import summarize_transcript
 from youtube_telegram_bot.telegram_posting import post_digest
 from youtube_telegram_bot.telegram_reading import read_channel_posts
 from youtube_telegram_bot.message_formatter import format_digest
+from youtube_telegram_bot.html_report import (
+    archive_summaries,
+    generate_html,
+    generate_markdown_files,
+)
+from youtube_telegram_bot.market_data import enrich_tickers
 
 # Setup logging
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
+# Cap videos per digest so a backlog drains gradually instead of
+# producing one unreadable message
+MAX_VIDEOS_PER_RUN = int(os.getenv("MAX_VIDEOS_PER_RUN", "5"))
 logging.basicConfig(
     level=logging.DEBUG if DEBUG else logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -64,6 +74,20 @@ def run_bot(dry_run: bool = False) -> bool:
         new_videos = poll_youtube()
         logger.info(f"  Found {len(new_videos)} new video(s)")
 
+        # After a gap (Mac asleep, schedule paused) the backlog can be dozens
+        # of videos. Summarising them all at once produces an unreadable
+        # mega-digest and burns quota, so take the newest few and let the
+        # remainder drain over the following runs.
+        deferred_videos = []
+        if len(new_videos) > MAX_VIDEOS_PER_RUN:
+            new_videos.sort(key=lambda v: v.get("published", ""), reverse=True)
+            deferred_videos = new_videos[MAX_VIDEOS_PER_RUN:]
+            new_videos = new_videos[:MAX_VIDEOS_PER_RUN]
+            logger.info(
+                f"  Backlog: processing {len(new_videos)} newest, "
+                f"deferring {len(deferred_videos)} to later runs"
+            )
+
         # Step 2: Process each video
         logger.info("Step 2/5: Processing videos (extract + summarize)")
         processed_videos = []
@@ -79,7 +103,7 @@ def run_bot(dry_run: bool = False) -> bool:
                 transcript = extract_transcript(video_id)
                 if not transcript:
                     logger.warning(f"    ⚠ No transcript available for: {title}")
-                    errors.append((title, "No transcript"))
+                    errors.append((video_id, title, "No transcript"))
                     continue
 
                 # Summarize transcript
@@ -87,46 +111,122 @@ def run_bot(dry_run: bool = False) -> bool:
                 if summary.get("error"):
                     error_msg = summary["error"]
                     logger.warning(f"    ⚠ Summarization error for {title}: {error_msg}")
-                    errors.append((title, error_msg))
+                    errors.append((video_id, title, error_msg))
                     continue
 
                 # Combine video info with summary
                 video_data = {
                     "id": video_id,
                     "title": title,
+                    "channel": video.get("channel", ""),
                     "tickers": summary.get("tickers", []),
                     "claim": summary.get("claim", ""),
                     "recommendation": summary.get("recommendation", ""),
                     "risk_flag": summary.get("risk_flag", ""),
+                    "tips": summary.get("tips", []),
                     "hebrew_summary": summary.get("hebrew_summary", ""),
+                    # Live price + 150-day moving average per ticker
+                    "ticker_stats": enrich_tickers(summary.get("tickers", [])),
                 }
                 processed_videos.append(video_data)
                 logger.info(f"    ✓ Processed: {title}")
 
             except Exception as e:
                 logger.error(f"    ✗ Unexpected error processing {title}: {e}")
-                errors.append((title, str(e)))
+                errors.append((video_id, title, str(e)))
                 continue
 
         logger.info(f"  Result: {len(processed_videos)} processed, {len(errors)} skipped")
-        if errors:
-            for title, error in errors[:3]:  # Log first 3 errors
-                logger.debug(f"    Skipped '{title}': {error}")
+        for _vid, title, error in errors[:3]:  # Log first 3 errors
+            logger.debug(f"    Skipped '{title}': {error}")
 
-        # Step 3: Read Telegram channel posts
+        # Polling marks videos seen before we know whether they worked, so
+        # un-mark everything a later run still needs to pick up: failures
+        # (retry), the deferred backlog, and — in dry-run — all of them,
+        # since a dry run must never consume a video's "newness"
+        unmark_ids = [vid for vid, _t, _e in errors] + [
+            v.get("id") for v in deferred_videos
+        ]
+        if dry_run:
+            unmark_ids = [v.get("id") for v in new_videos + deferred_videos]
+        if unmark_ids:
+            try:
+                from youtube_telegram_bot.state import load_state, save_state
+                from youtube_telegram_bot.config import STATE_FILE
+
+                state = load_state(STATE_FILE)
+                for vid in unmark_ids:
+                    state.pop(vid, None)
+                save_state(state, STATE_FILE)
+                logger.info(f"  Unmarked {len(unmark_ids)} video(s) for next real run")
+            except Exception as e:
+                logger.warning(f"  ⚠ Could not unmark videos: {e}")
+
+        # Archive summaries, refresh the HTML report + markdown knowledge base
+        if processed_videos and not dry_run:
+            try:
+                archive_summaries(processed_videos)
+                generate_html()
+                generate_markdown_files()
+            except Exception as e:
+                logger.warning(f"  ⚠ Failed to update HTML/markdown reports: {e}")
+
+        # Step 3: Read Telegram channel posts (only ones newer than last digest)
         logger.info("Step 3/5: Reading Telegram channel posts")
-        channel_posts = read_channel_posts(limit=5, dry_run=dry_run)
-        logger.info(f"  Read {len(channel_posts)} post(s)")
+        from youtube_telegram_bot import telegram_reading
+        from youtube_telegram_bot.state import load_state, save_state
+        from youtube_telegram_bot.config import STATE_FILE
 
-        # Step 4: Format digest
+        state = load_state(STATE_FILE)
+        last_post_id = state.get("_honland_last_id", 0)
+        channel_posts = read_channel_posts(limit=10, dry_run=dry_run, min_id=last_post_id)
+        logger.info(f"  Read {len(channel_posts)} new post(s) since id {last_post_id}")
+
+        # Persist cursor so already-sent posts are never repeated
+        new_max_id = telegram_reading.LAST_READ_MAX_ID
+        if not dry_run and new_max_id > last_post_id:
+            state["_honland_last_id"] = new_max_id
+            save_state(state, STATE_FILE)
+
+        # Nothing new anywhere → skip posting (lets the bot run hourly without spam)
+        if not processed_videos and not channel_posts:
+            logger.info("Nothing new since last digest — skipping post")
+            logger.info("=" * 60)
+            logger.info("✓ Bot orchestration COMPLETED (no new content)")
+            logger.info("=" * 60)
+            return True
+
+        # Step 4: Format digest, then vary its wording so consecutive
+        # editions don't read like the same form letter
         logger.info("Step 4/5: Formatting digest message")
         digest_message = format_digest(processed_videos, channel_posts)
+        if not dry_run:
+            from youtube_telegram_bot.rephrase import rephrase_digest
+            digest_message = rephrase_digest(digest_message)
         logger.info(f"  Digest size: {len(digest_message)} chars")
         logger.debug(f"  Message preview:\n{digest_message[:200]}...")
 
-        # Step 5: Post to Telegram
+        # Step 5: Post to Telegram — channel + extra recipient (e.g. אבא).
+        # The Russian translation is prepared BEFORE posting so both sends
+        # go out back-to-back instead of a minute apart.
         logger.info("Step 5/5: Posting digest to Telegram")
-        success = post_digest(digest_message, dry_run=dry_run)
+        russian_copy = ""
+        if not dry_run:
+            from youtube_telegram_bot.summarizer import translate_to_russian
+            russian_copy = translate_to_russian(digest_message)
+
+        # Telegram rejects anything over 4096 chars, so a busy day must be
+        # split rather than silently failing to post at all
+        from youtube_telegram_bot.daily_review import split_message
+
+        success = True
+        for chunk in split_message(digest_message):
+            success = post_digest(chunk, dry_run=dry_run) and success
+
+        if success and not dry_run and russian_copy:
+            from youtube_telegram_bot.telegram_reading import send_message_as_user
+            for chunk in split_message(russian_copy):
+                send_message_as_user(chunk)
 
         # Final summary
         logger.info("=" * 60)

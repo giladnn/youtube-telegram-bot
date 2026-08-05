@@ -61,6 +61,10 @@ def extract_video_ids(root: ET.Element) -> List[Dict[str, str]]:
         title_elem = entry.find("atom:title", ATOM_NS)
         title = title_elem.text if title_elem is not None else "Unknown"
 
-        videos.append({"id": video_id, "title": title})
+        # Publish time lets a multi-channel backlog be ordered newest-first
+        published_elem = entry.find("atom:published", ATOM_NS)
+        published = published_elem.text if published_elem is not None else ""
+
+        videos.append({"id": video_id, "title": title, "published": published})
 
     return videos

@@ -1,6 +1,7 @@
-"""Format digest messages for Telegram with emoji sections."""
+"""Format digest messages for Telegram — compact, Hebrew-first, skimmable."""
 
 import logging
+from datetime import datetime
 from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -8,12 +9,33 @@ logger = logging.getLogger(__name__)
 # Telegram limits for context
 TELEGRAM_MESSAGE_LIMIT = 4096
 POST_TRUNCATE_LENGTH = 200
-MAX_CHANNEL_POSTS = 5
+MAX_CHANNEL_POSTS = 10
+CLAIM_TRUNCATE_LENGTH = 150
+MAX_TIPS = 4
+
+# Human-readable Hebrew labels for source channels
+CHANNEL_LABELS = {
+    "Micha.Stocks": "מיכה סטוקס",
+    "guynatan9": "גיא נתן",
+}
+
+
+def _truncate(text: str, limit: int) -> str:
+    """Truncate text to limit, appending ellipsis if cut."""
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "…"
 
 
 def _format_video_entry(video: Dict[str, Any]) -> str:
     """
-    Format a single video entry.
+    Format a single video as a compact 2-3 line entry.
+
+    Line 1: bold title
+    Line 2: tickers + recommendation on one line
+    Line 3: claim (one sentence)
+    Line 4: risk flag, only if meaningful
 
     Args:
         video: Video dictionary with title, tickers, claim, recommendation, risk_flag
@@ -23,37 +45,60 @@ def _format_video_entry(video: Dict[str, Any]) -> str:
     """
     parts = []
 
-    title = video.get("title", "Unknown")
+    title = video.get("title", "")
+    channel = video.get("channel", "")
     tickers = video.get("tickers", [])
     claim = video.get("claim", "")
     recommendation = video.get("recommendation", "")
     risk_flag = video.get("risk_flag", "")
 
-    # Title (bold)
-    parts.append(f"*{title}*")
+    source = CHANNEL_LABELS.get(channel, channel)
+    if source:
+        parts.append(f"🎬 *{source} | {title}*")
+    else:
+        parts.append(f"🎬 *{title}*")
 
-    # Tickers
-    ticker_str = ", ".join(tickers) if tickers else "N/A"
-    parts.append(f"🎫 Tickers: {ticker_str}")
-
-    # Claim (if present)
-    if claim:
-        parts.append(f"💬 {claim}")
-
-    # Recommendation (if present)
+    # Tickers + recommendation combined into one line
+    meta_line = []
+    if tickers:
+        meta_line.append(" ".join(f"`{t}`" for t in tickers))
     if recommendation:
-        parts.append(f"📈 Rec: {recommendation}")
+        meta_line.append(f"📈 {_truncate(recommendation, CLAIM_TRUNCATE_LENGTH)}")
+    if meta_line:
+        parts.append(" · ".join(meta_line))
 
-    # Risk flag (if present and not empty)
+    # Price vs 150-day moving average + analyst consensus per ticker
+    ticker_stats = video.get("ticker_stats", {})
+    for ticker, stats in ticker_stats.items():
+        arrow = "🟢 מעל" if stats.get("above_ma") else "🔴 מתחת"
+        line = f"📊 {ticker}: {stats['price']:,} · ממוצע 150: {stats['ma150']:,} ({arrow})"
+        analyst = stats.get("analyst")
+        if analyst:
+            line += (
+                f"\n🎯 אנליסטים: {analyst['rating']} · יעד {analyst['target_mean']:,}"
+                f" ({analyst['analysts']} אנליסטים)"
+            )
+        parts.append(line)
+
+    if claim:
+        parts.append(f"💬 {_truncate(claim, CLAIM_TRUNCATE_LENGTH)}")
+
+    # Actionable tips (levels, gaps, entry/exit conditions)
+    tips = video.get("tips", [])
+    for tip in tips[:MAX_TIPS]:
+        parts.append(f"💡 {_truncate(tip, CLAIM_TRUNCATE_LENGTH)}")
+
     if risk_flag and risk_flag.lower() not in ("ללא", "none", ""):
-        parts.append(f"⚠️ Risk: {risk_flag}")
+        parts.append(f"⚠️ {_truncate(risk_flag, CLAIM_TRUNCATE_LENGTH)}")
 
     return "\n".join(parts)
 
 
 def format_digest(videos: List[Dict[str, Any]], channel_posts: List[str]) -> str:
     """
-    Format a digest message combining YouTube videos and Telegram channel posts.
+    Format a compact digest combining YouTube videos and Telegram channel posts.
+
+    Empty sections are omitted entirely — no "no new videos" boilerplate.
 
     Args:
         videos: List of video dicts with title, tickers, claim, recommendation, risk_flag
@@ -62,53 +107,22 @@ def format_digest(videos: List[Dict[str, Any]], channel_posts: List[str]) -> str
     Returns:
         Formatted digest message (Telegram-compatible markdown)
     """
-    lines = []
+    today = datetime.now().strftime("%d.%m")
+    lines = [f"📺 *דייג'סט בוקר* · {today}"]
 
-    # Header with timestamp context
-    lines.append("📺 *Daily Investment Digest*")
-    lines.append("(8:00 AM IST)")
-    lines.append("")
-
-    # YouTube videos section
     if videos:
-        lines.append("📹 *New Videos* ({} video{})".format(
-            len(videos), "s" if len(videos) > 1 else ""
-        ))
-        lines.append("")
-
         for video in videos:
-            lines.append(_format_video_entry(video))
             lines.append("")
+            lines.append(_format_video_entry(video))
 
-    else:
-        lines.append("📹 *New Videos*")
-        lines.append("No new videos today")
-        lines.append("")
-
-    # Channel posts section
     if channel_posts:
-        lines.append("💬 *Channel Updates* ({} post{})".format(
-            len(channel_posts), "s" if len(channel_posts) > 1 else ""
-        ))
         lines.append("")
+        lines.append("📊 *הון לנד | סקירות והחזקות*")
+        for post in channel_posts[:MAX_CHANNEL_POSTS]:
+            lines.append(f"• {_truncate(post, POST_TRUNCATE_LENGTH)}")
 
-        for i, post in enumerate(channel_posts[:MAX_CHANNEL_POSTS], 1):
-            # Truncate long posts
-            post_text = post[:POST_TRUNCATE_LENGTH]
-            if len(post) > POST_TRUNCATE_LENGTH:
-                post_text += "…"
-
-            lines.append(f"{i}. {post_text}")
-
-        lines.append("")
-
-    else:
-        lines.append("💬 *Channel Updates*")
-        lines.append("No new posts")
-        lines.append("")
-
-    # Footer
-    lines.append("_Automated digest • No action required_")
+    if not videos and not channel_posts:
+        lines.append("אין עדכונים חדשים היום 🤷")
 
     digest = "\n".join(lines)
 

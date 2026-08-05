@@ -92,6 +92,7 @@ def poll_channel(
 
         new_videos = _detect_new_videos(videos, state)
         for video in new_videos:
+            video["channel"] = channel_name
             logger.info(f"New video: {video['title']} ({video['id']})")
 
     except requests.RequestException as e:

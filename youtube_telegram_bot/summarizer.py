@@ -36,21 +36,66 @@ HEBREW_FINANCE_PROMPT = """You are an expert financial analyst. Analyze this inv
 
 Return your analysis with this exact structure:
 
-**Tickers:** [comma-separated Israeli stock symbols, e.g., טבה, ניס, תיקל]
+**Tickers:** [comma-separated stock symbols in English, e.g., META, TEVA, NICE.TA]
 **Claim:** [The main financial claim or recommendation in 1-2 sentences, in Hebrew]
 **Recommendation:** [BUY / HOLD / SELL / WATCH, in Hebrew]
 **Risk Flag:** [Any risks or warnings mentioned in Hebrew, or "ללא" if none]
+**Tips:** [Every concrete, actionable trading tip the speaker gives, one per line starting with "-". Capture SPECIFICS in Hebrew: exact price levels for entry/exit/stop, support and resistance levels, open gaps and their price targets, volume conditions for confirming a breakout, moving-average levels (e.g. ממוצע 150), chart patterns to watch, timing conditions ("wait for earnings", "wait for the Fed decision"), and general trading rules the speaker teaches. If a tip has a number in it, ALWAYS include the number. Write "ללא" if no actionable tips are given.]
 **Summary:** [3–5 sentence summary of the analysis in Hebrew]
 
-Keep the analysis concise and actionable. Use English ticker symbols (TEVA, NICE, ICL, etc.) when discussing stock names.
+Keep the analysis concise and actionable. Use English ticker symbols (TEVA, NICE, ICL, etc.) when discussing stock names. Never invent price levels that are not in the transcript.
 
 Transcript:
 {transcript}
 """
 
 # Gemini model configuration
-GEMINI_MODEL = "gemini-1.5-flash"
+# Models are tried in order — each has a separate free-tier daily quota,
+# so if the primary is exhausted (429) the next one takes over
+GEMINI_MODEL = "gemini-flash-latest"
+GEMINI_FALLBACK_MODELS = ["gemini-flash-lite-latest", "gemini-2.0-flash"]
 GEMINI_API_TIMEOUT = 30
+
+TRANSLATE_PROMPT = """Translate the following Telegram digest message from Hebrew to Russian.
+
+Rules:
+- Keep ALL emojis, line structure, and formatting exactly as they are
+- Keep stock ticker symbols (META, SPY, NICE.TA), numbers, prices, and dates unchanged
+- Keep Telegram markdown markers (*bold*, `code`) in place around the translated text
+- Translate naturally for a Russian-speaking investor; do not add or remove content
+- Return ONLY the translated message, nothing else
+
+Message:
+{text}
+"""
+
+
+def translate_to_russian(text: str) -> str:
+    """
+    Translate a digest message to Russian via Gemini (with model fallback).
+
+    Returns the translation, or the original text if translation fails —
+    a Hebrew digest is better than no digest.
+    """
+    if genai is None or not text.strip():
+        return text
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        genai.configure(api_key=api_key)
+
+    prompt = TRANSLATE_PROMPT.format(text=text)
+    for model_name in [GEMINI_MODEL] + GEMINI_FALLBACK_MODELS:
+        try:
+            response = genai.GenerativeModel(model_name).generate_content(prompt)
+            if response and response.text and response.text.strip():
+                return response.text.strip()
+        except Exception as e:
+            logger.warning(f"Translation via {model_name} failed: {str(e)[:60]}")
+            continue
+
+    logger.warning("Translation failed on all models — sending original text")
+    return text
 
 
 def _initialize_gemini_client() -> Optional[Any]:
@@ -138,6 +183,7 @@ def _parse_gemini_response(response_text: str) -> Dict[str, Any]:
         "claim": "",
         "recommendation": "",
         "risk_flag": "",
+        "tips": [],
         "hebrew_summary": "",
     }
 
@@ -150,11 +196,27 @@ def _parse_gemini_response(response_text: str) -> Dict[str, Any]:
             t.strip() for t in ticker_list
             if t.strip() and not t.strip().startswith("**")
         ]
+        # Keep only strings that look like real ticker symbols
+        # (uppercase letters, optional dots/digits, e.g. META or NICE.TA) —
+        # models sometimes leak explanatory Hebrew text into this field
+        tickers = [
+            t for t in tickers
+            if re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", t)
+        ]
         result["tickers"] = tickers
 
     result["claim"] = _extract_field_value(response_text, "Claim")
     result["recommendation"] = _extract_field_value(response_text, "Recommendation")
     result["risk_flag"] = _extract_field_value(response_text, "Risk Flag")
+
+    # Tips: multi-line field, one tip per "-" line
+    tips_text = _extract_field_value(response_text, "Tips")
+    if tips_text and tips_text.strip().lower() not in ("ללא", "none"):
+        result["tips"] = [
+            line.lstrip("-• ").strip()
+            for line in tips_text.split("\n")
+            if line.strip().lstrip("-• ").strip()
+        ]
 
     # Summary field might be called "Summary" or have multi-line content
     summary = _extract_field_value(response_text, "Summary")
@@ -232,7 +294,7 @@ def summarize_transcript(transcript: str, video_title: str) -> Dict[str, Any]:
     - Risk flags and warnings (Hebrew)
     - Concise Hebrew summary (3-5 sentences)
 
-    Uses Gemini 1.5 Flash model on the free tier (1M tokens/day).
+    Uses Gemini 2.5 Flash model on the free tier (1M tokens/day).
     Estimated cost: $0 (free tier).
 
     Args:
@@ -296,12 +358,29 @@ def summarize_transcript(transcript: str, video_title: str) -> Dict[str, Any]:
             f"Transcript: {len(transcript)} chars"
         )
 
-        # Call Gemini API with timeout protection
-        logger.debug(f"Calling Gemini API with model: {GEMINI_MODEL}")
-        try:
-            response = model.generate_content(prompt)
-        except Exception as api_error:
-            error_msg = f"Gemini API call failed: {api_error}"
+        # Call Gemini API, falling back to alternate models on quota errors
+        response = None
+        last_error = None
+        for model_name in [GEMINI_MODEL] + GEMINI_FALLBACK_MODELS:
+            try:
+                logger.debug(f"Calling Gemini API with model: {model_name}")
+                response = genai.GenerativeModel(model_name).generate_content(prompt)
+                if model_name != GEMINI_MODEL:
+                    logger.info(f"Used fallback model: {model_name}")
+                break
+            except Exception as api_error:
+                last_error = api_error
+                err = str(api_error)
+                # Quota exhausted or transient server error: try the next model
+                if any(s in err for s in ("429", "RESOURCE_EXHAUSTED",
+                                          "500", "503", "504",
+                                          "Deadline Exceeded", "unavailable")):
+                    logger.warning(f"Model {model_name} failed ({err[:60]}), trying next")
+                    continue
+                break  # Permanent error (bad key, blocked content): stop
+
+        if response is None:
+            error_msg = f"Gemini API call failed: {last_error}"
             logger.error(error_msg)
             default_response["error"] = error_msg
             return default_response
@@ -329,6 +408,7 @@ def summarize_transcript(transcript: str, video_title: str) -> Dict[str, Any]:
             "claim": parsed["claim"],
             "recommendation": parsed["recommendation"],
             "risk_flag": parsed["risk_flag"],
+            "tips": parsed["tips"],
             "hebrew_summary": parsed["hebrew_summary"],
             "error": None,
         }
