@@ -34,6 +34,10 @@ from youtube_telegram_bot.market_data import enrich_tickers
 
 # Setup logging
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
+# Cap videos per digest so a backlog drains gradually instead of
+# producing one unreadable message
+MAX_VIDEOS_PER_RUN = int(os.getenv("MAX_VIDEOS_PER_RUN", "5"))
 logging.basicConfig(
     level=logging.DEBUG if DEBUG else logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -69,6 +73,20 @@ def run_bot(dry_run: bool = False) -> bool:
         logger.info("Step 1/5: Polling YouTube channels")
         new_videos = poll_youtube()
         logger.info(f"  Found {len(new_videos)} new video(s)")
+
+        # After a gap (Mac asleep, schedule paused) the backlog can be dozens
+        # of videos. Summarising them all at once produces an unreadable
+        # mega-digest and burns quota, so take the newest few and let the
+        # remainder drain over the following runs.
+        deferred_videos = []
+        if len(new_videos) > MAX_VIDEOS_PER_RUN:
+            new_videos.sort(key=lambda v: v.get("published", ""), reverse=True)
+            deferred_videos = new_videos[MAX_VIDEOS_PER_RUN:]
+            new_videos = new_videos[:MAX_VIDEOS_PER_RUN]
+            logger.info(
+                f"  Backlog: processing {len(new_videos)} newest, "
+                f"deferring {len(deferred_videos)} to later runs"
+            )
 
         # Step 2: Process each video
         logger.info("Step 2/5: Processing videos (extract + summarize)")
@@ -122,12 +140,15 @@ def run_bot(dry_run: bool = False) -> bool:
         for _vid, title, error in errors[:3]:  # Log first 3 errors
             logger.debug(f"    Skipped '{title}': {error}")
 
-        # Un-mark videos that must be re-picked-up by the next real run:
-        # failed ones (retry), and in dry-run mode ALL new videos —
-        # a dry run must never consume a video's "newness"
-        unmark_ids = [vid for vid, _t, _e in errors]
+        # Polling marks videos seen before we know whether they worked, so
+        # un-mark everything a later run still needs to pick up: failures
+        # (retry), the deferred backlog, and — in dry-run — all of them,
+        # since a dry run must never consume a video's "newness"
+        unmark_ids = [vid for vid, _t, _e in errors] + [
+            v.get("id") for v in deferred_videos
+        ]
         if dry_run:
-            unmark_ids = [v.get("id") for v in new_videos]
+            unmark_ids = [v.get("id") for v in new_videos + deferred_videos]
         if unmark_ids:
             try:
                 from youtube_telegram_bot.state import load_state, save_state
@@ -194,11 +215,18 @@ def run_bot(dry_run: bool = False) -> bool:
             from youtube_telegram_bot.summarizer import translate_to_russian
             russian_copy = translate_to_russian(digest_message)
 
-        success = post_digest(digest_message, dry_run=dry_run)
+        # Telegram rejects anything over 4096 chars, so a busy day must be
+        # split rather than silently failing to post at all
+        from youtube_telegram_bot.daily_review import split_message
+
+        success = True
+        for chunk in split_message(digest_message):
+            success = post_digest(chunk, dry_run=dry_run) and success
 
         if success and not dry_run and russian_copy:
             from youtube_telegram_bot.telegram_reading import send_message_as_user
-            send_message_as_user(russian_copy)
+            for chunk in split_message(russian_copy):
+                send_message_as_user(chunk)
 
         # Final summary
         logger.info("=" * 60)
